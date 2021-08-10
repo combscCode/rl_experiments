@@ -1,6 +1,60 @@
-from itertools import combinations
+from abc import ABC, abstractmethod
 from collections import namedtuple
+
+
 ActionTriple = namedtuple('ActionTriple', ['action', 'next_state', 'reward'])
+ActionResult = namedtuple('ActionResult', ['probability', 'next_state', 'reward'])
+
+
+class AbstractDynamics(ABC):
+    """Provides an interface for all Dynamics classes to implement."""
+    @abstractmethod
+    def state_list(self) -> list:
+        """Returns a list of all legal states, excluding terminal states."""
+        pass
+
+    @abstractmethod
+    def legal_actions(self, input_state) -> list:
+        """Given an input state, returns a list of actions that can be fed to state_action_results.
+        """
+        pass
+
+    @abstractmethod
+    def state_action_results(self, input_state, input_action) -> list[ActionResult]:
+        """Maps a given input state + action to a list of possible StateReward tuples.
+        """
+        pass
+
+# Extremely Simple Dynamics for testing:
+# An array of ints. Can only move left and right.
+# Reward is equal to difference in the states you're
+# moving between. Moving off the grid ends the game.
+class DumbDynamics(AbstractDynamics):
+    grid = []
+    def __init__(self, grid):
+        self.grid = grid
+
+    def state_list(self):
+        return list(range(-1, len(self.grid) + 1))
+
+    def action_function(self, input_state):
+        if input_state < -1 or input_state > len(self.grid):
+            raise ValueError(f'{input_state} is not a valid state for grid: {self.grid}')
+        if input_state == -1 or input_state == len(self.grid):
+            return [] # Signals terminal state
+        left_triple = ActionTriple(
+            -1,
+            input_state - 1,
+            0 if input_state == 0 else self.grid[input_state - 1] - self.grid[input_state]
+        )
+        right_triple = ActionTriple(
+            1,
+            input_state + 1,
+            0 if input_state == len(self.grid) - 1 else self.grid[input_state + 1] - self.grid[input_state]
+        )
+        return [left_triple, right_triple]
+
+from itertools import combinations
 class PolicyIteration:
     # maps states to values
     values = {}
@@ -90,47 +144,6 @@ class PolicyIteration:
                 return self.values, self.policy
             loops += 1
 
-
-from abc import ABC, abstractmethod
-
-class AbstractDynamics(ABC):
-    """Provides an interface for all Dynamics classes to implement."""
-    @abstractmethod
-    def state_list():
-        pass
-
-    @abstractmethod
-    def action_function():
-        pass
-
-# Extremely Simple Dynamics for testing:
-# An array of ints. Can only move left and right.
-# Reward is equal to difference in the states you're
-# moving between. Moving off the grid ends the game.
-class DumbDynamics(AbstractDynamics):
-    grid = []
-    def __init__(self, grid):
-        self.grid = grid
-
-    def state_list(self):
-        return list(range(-1, len(self.grid) + 1))
-
-    def action_function(self, input_state):
-        if input_state < -1 or input_state > len(self.grid):
-            raise ValueError(f'{input_state} is not a valid state for grid: {self.grid}')
-        if input_state == -1 or input_state == len(self.grid):
-            return [] # Signals terminal state
-        left_triple = ActionTriple(
-            -1,
-            input_state - 1,
-            0 if input_state == 0 else self.grid[input_state - 1] - self.grid[input_state]
-        )
-        right_triple = ActionTriple(
-            1,
-            input_state + 1,
-            0 if input_state == len(self.grid) - 1 else self.grid[input_state + 1] - self.grid[input_state]
-        )
-        return [left_triple, right_triple]
 
 if __name__ == '__main__':
     dyn = DumbDynamics([-1, 0, 1])
