@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from collections import namedtuple
 
 
-ActionTriple = namedtuple('ActionTriple', ['action', 'next_state', 'reward'])
 ActionResult = namedtuple('ActionResult', ['probability', 'next_state', 'reward'])
 
 
@@ -16,6 +15,7 @@ class AbstractDynamics(ABC):
     @abstractmethod
     def legal_actions(self, input_state) -> list:
         """Given an input state, returns a list of actions that can be fed to state_action_results.
+        An empty list implies no legal actions are allowed, AKA you've been given a terminal state.
         """
         pass
 
@@ -24,6 +24,7 @@ class AbstractDynamics(ABC):
         """Maps a given input state + action to a list of possible StateReward tuples.
         """
         pass
+
 
 # Extremely Simple Dynamics for testing:
 # An array of ints. Can only move left and right.
@@ -35,27 +36,32 @@ class DumbDynamics(AbstractDynamics):
         self.grid = grid
 
     def state_list(self):
-        return list(range(-1, len(self.grid) + 1))
+        return list(range(len(self.grid)))
 
-    def action_function(self, input_state):
+    def legal_actions(self, input_state) -> list:
         if input_state < -1 or input_state > len(self.grid):
             raise ValueError(f'{input_state} is not a valid state for grid: {self.grid}')
         if input_state == -1 or input_state == len(self.grid):
-            return [] # Signals terminal state
-        left_triple = ActionTriple(
-            -1,
-            input_state - 1,
-            0 if input_state == 0 else self.grid[input_state - 1] - self.grid[input_state]
-        )
-        right_triple = ActionTriple(
-            1,
-            input_state + 1,
-            0 if input_state == len(self.grid) - 1 else self.grid[input_state + 1] - self.grid[input_state]
-        )
-        return [left_triple, right_triple]
+            return [] # Signals Terminal State
 
-from itertools import combinations
+        return [-1, 1] # TODO: this should be named 'left', 'right', probably? Maybe make an enum
+
+    def state_action_results(self, input_state, input_action) -> list[ActionResult]:
+        if input_state < 0 or input_state >= len(self.grid):
+            raise ValueError(f'{input_state}, {input_action} is not a valid state action pair for grid: {self.grid}')
+        if input_action != -1 and input_action != 1:
+            raise ValueError(f'{input_action} is not a valid action, try -1 or 1.')
+        next_state = input_state + input_action
+        reward = self.grid[next_state] - self.grid[input_state]
+        return ActionResult(
+            probability=1,
+            next_state=next_state,
+            reward=reward
+        )
+
+
 class PolicyIteration:
+    """Implements Policy Iteration as described in Sutton 4.3"""
     # maps states to values
     values = {}
     # maps states to actions
@@ -63,24 +69,20 @@ class PolicyIteration:
 
     gamma = 0.9
     theta = 0.1
-    state_list = None
-    action_function = None
 
-    def __init__(self, state_list, action_function, gamma=None, theta=None):
-        """Initializes Policy Iteration alg as described in Sutton 4.3 assuming
-        action + state pairs only produce one reward + next state pair.
+    state_list = None
+    dynamics = None
+
+    def __init__(self, dynamics: AbstractDynamics, gamma=None, theta=None):
+        """Initializes Policy Iteration alg as described in Sutton 4.3.
+
         params:
-        state_list: list of all states
-        action_function: callable that maps state -> list of all possible
-                         future (action, next_state, reward) triples.
-                         Note: action used to improve interpretability
-                         of what the model is doing. Not explicitly
-                         needed to compute optimal policies.
+        dynamics: Should be a concrete instantiation of the AbstractDynamics class.
         gamma: float between 0 and 1, determines how highly to prioritize future values
         theta: float > 0, determines when to stop policy iteration
         """
-        self.state_list = state_list
-        self.action_function = action_function
+        self.dynamics = dynamics
+        self.state_list = dynamics.state_list()
         if gamma is not None:
             self.gamma = gamma
         if theta is not None:
@@ -89,45 +91,49 @@ class PolicyIteration:
             # Arbitrary initialization, in future can test different
             # possible inits to test which one performs best.
             self.values[state] = 0
-            action_triples = action_function(state)
-            if len(action_triples):
-                self.policy[state] = action_triples[0].action # Simply select the first action
+            legal_actions = self.dynamics.legal_actions(state)
+            if len(legal_actions):
+                self.policy[state] = legal_actions[0] # Simply select the first action
             else:
-                self.policy[state] = None
+                self.policy[state] = None # Terminal State, do nothing
+
+    def state_action_valuation(self, state, action):
+        action_results = self.dynamics.state_action_results(state, action)
+        return sum(
+            ar.probability * (ar.reward + self.gamma * self.values[ar.next_state])
+            for ar in action_results
+        )
+
 
     def policy_evaluation(self):
-        """Performs Policy Evaluation as described in Sutton 4.3 assuming
-        action + state pairs only produce one reward + next state pair.
+        """Performs Policy Evaluation as described in Sutton 4.3.
         """
-        delta = 500
+        delta = self.theta + 1
         while delta > self.theta:
             delta = 0
             for state in self.state_list:
                 v = self.values[state]
-                action_triples = self.action_function(state)
-                found_action = False # used to debug broken code
-                for at in action_triples:
-                    if at.action == self.policy[state]:
-                        found_action = True
-                        self.values[state] = at.reward + self.gamma * self.values[at.next_state]
-                        break
-                if not found_action and len(action_triples):
-                    raise Exception('Could not find action in policy evaluation uh oh')
-                if found_action:
-                    delta = max(delta, abs(v - self.values[state]))
+                self.values[state] = self.state_action_valuation(state, self.policy[state])
+                delta = max(delta, abs(v - self.values[state]))
 
     def policy_improvement(self):
-        """Performs policy improvement as described in Sutton 4.3 assuming
-        action + state pairs only produce one reward + next state pair."""
+        """Performs policy improvement as described in Sutton 4.3.
+        """
         policy_stable = True
         for state in self.state_list:
             old_action = self.policy[state]
-            action_triples = self.action_function(state)
-            best_val = -100000 # this is bad but I'm being lazy ¯\_(ツ)_/¯
-            for at in action_triples:
-                if at.reward + self.gamma * self.values[at.next_state] > best_val:
-                    self.policy[state] = at.action
-                    best_val = at.reward
+            # Find argmax for action given the current value function
+            best_val = -100000
+            best_action = None
+            legal_actions = self.dynamics.legal_actions(state)
+            for action in legal_actions:
+                current_val = self.state_action_valuation(state, action)
+                if current_val > best_val:
+                    best_val = current_val
+                    best_action = action
+            if best_action is None:
+                raise Exception("You messed up chris. Policy Improvement Failed.")
+            self.policy[state] = best_action
             if old_action != self.policy[state]:
                 policy_stable = False
         return policy_stable
@@ -151,12 +157,14 @@ if __name__ == '__main__':
     optimal = policy_iteration.run_alg()
     print(optimal)
 
-    trick = DumbDynamics([-10, 100, 10, 5])
-    policy_iteration = PolicyIteration(trick.state_list(), trick.action_function)
-    optimal = policy_iteration.run_alg()
-    print(optimal)
+    # trick = DumbDynamics([-10, 100, 10, 5])
+    # policy_iteration = PolicyIteration(trick.state_list(), trick.action_function)
+    # optimal = policy_iteration.run_alg()
+    # print(optimal)
+    exit()
 
 # Example 4.2 Jack's Car Rental
+from itertools import combinations
 from numpy.random import poisson
 class CarDynamics:
     _num_cars = [0, 0]
