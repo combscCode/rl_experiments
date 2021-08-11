@@ -12,6 +12,12 @@ class AbstractDynamics(ABC):
         """Returns a list of all legal states, excluding terminal states."""
         pass
 
+
+    @abstractmethod
+    def terminal_state_list(self) -> list:
+        """Returns a list of all terminal states."""
+        pass
+
     @abstractmethod
     def legal_actions(self, input_state) -> list:
         """Given an input state, returns a list of actions that can be fed to state_action_results.
@@ -38,6 +44,9 @@ class DumbDynamics(AbstractDynamics):
     def state_list(self):
         return list(range(len(self.grid)))
 
+    def terminal_state_list(self):
+        return [-1, len(self.grid)]
+
     def legal_actions(self, input_state) -> list:
         if input_state < -1 or input_state > len(self.grid):
             raise ValueError(f'{input_state} is not a valid state for grid: {self.grid}')
@@ -52,12 +61,15 @@ class DumbDynamics(AbstractDynamics):
         if input_action != -1 and input_action != 1:
             raise ValueError(f'{input_action} is not a valid action, try -1 or 1.')
         next_state = input_state + input_action
-        reward = self.grid[next_state] - self.grid[input_state]
-        return ActionResult(
+        if next_state == -1 or next_state == len(self.grid):
+            reward = 0
+        else:
+            reward = self.grid[next_state] - self.grid[input_state]
+        return [ActionResult(
             probability=1,
             next_state=next_state,
             reward=reward
-        )
+        )]
 
 
 class PolicyIteration:
@@ -71,6 +83,7 @@ class PolicyIteration:
     theta = 0.1
 
     state_list = None
+    terminal_state_list = None
     dynamics = None
 
     def __init__(self, dynamics: AbstractDynamics, gamma=None, theta=None):
@@ -83,19 +96,19 @@ class PolicyIteration:
         """
         self.dynamics = dynamics
         self.state_list = dynamics.state_list()
+        self.terminal_state_list = dynamics.terminal_state_list()
         if gamma is not None:
             self.gamma = gamma
         if theta is not None:
             self.theta = theta
-        for state in state_list:
+        for state in self.state_list:
             # Arbitrary initialization, in future can test different
             # possible inits to test which one performs best.
             self.values[state] = 0
             legal_actions = self.dynamics.legal_actions(state)
-            if len(legal_actions):
-                self.policy[state] = legal_actions[0] # Simply select the first action
-            else:
-                self.policy[state] = None # Terminal State, do nothing
+            self.policy[state] = legal_actions[0] # Simply select the first action
+        for terminal_state in self.terminal_state_list:
+            self.values[terminal_state] = 0
 
     def state_action_valuation(self, state, action):
         action_results = self.dynamics.state_action_results(state, action)
@@ -153,14 +166,16 @@ class PolicyIteration:
 
 if __name__ == '__main__':
     dyn = DumbDynamics([-1, 0, 1])
-    policy_iteration = PolicyIteration(dyn.state_list(), dyn.action_function)
+    policy_iteration = PolicyIteration(dyn)
     optimal = policy_iteration.run_alg()
-    print(optimal)
+    print('optimal values', optimal[0])
+    print('optimal policy', optimal[1])
 
-    # trick = DumbDynamics([-10, 100, 10, 5])
-    # policy_iteration = PolicyIteration(trick.state_list(), trick.action_function)
-    # optimal = policy_iteration.run_alg()
-    # print(optimal)
+    trick = DumbDynamics([100, 10, 0, 0, 0, 0, 1000])
+    policy_iteration = PolicyIteration(trick)
+    optimal = policy_iteration.run_alg()
+    print('optimal values', optimal[0])
+    print('optimal policy', optimal[1])
     exit()
 
 # Example 4.2 Jack's Car Rental
