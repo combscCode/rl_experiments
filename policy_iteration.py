@@ -32,6 +32,8 @@ class AbstractDynamics(ABC):
         pass
 
 
+import matplotlib.pyplot as plt
+
 # Extremely Simple Dynamics for testing:
 # An array of ints. Can only move left and right.
 # Reward is equal to difference in the states you're
@@ -71,117 +73,31 @@ class DumbDynamics(AbstractDynamics):
             reward=reward
         )]
 
+    def visualize_policy(self, policy: dict, name: str=None) -> None:
+        """Prints a picture of the policy given"""
+        to_print = []
+        for i in range(len(self.grid)):
+            if policy[i] == 1:
+                to_print.append('->')
+            else:
+                to_print.append('<-')
+        if name is not None:
+            print(f'Policy {name}: {to_print}')
+        else:
+            print('Policy :', to_print)
 
-class PolicyIteration:
-    """Implements Policy Iteration as described in Sutton 4.3"""
-    # maps states to values
-    values = {}
-    # maps states to actions
-    policy = {}
+    def visualize_values(self, values: dict, name: str='Values Graph') -> None:
+        """Shows a bar chart of the values given."""
+        to_chart = [values[i] for i in range(len(self.grid))]
+        plt.bar(list(range(len(self.grid))), to_chart)
+        plt.title(name)
+        plt.show()
 
-    gamma = 0.9
-    theta = 0.1
-
-    state_list = None
-    terminal_state_list = None
-    dynamics = None
-
-    def __init__(self, dynamics: AbstractDynamics, gamma=None, theta=None):
-        """Initializes Policy Iteration alg as described in Sutton 4.3.
-
-        params:
-        dynamics: Should be a concrete instantiation of the AbstractDynamics class.
-        gamma: float between 0 and 1, determines how highly to prioritize future values
-        theta: float > 0, determines when to stop policy iteration
-        """
-        self.dynamics = dynamics
-        self.state_list = dynamics.state_list()
-        self.terminal_state_list = dynamics.terminal_state_list()
-        if gamma is not None:
-            self.gamma = gamma
-        if theta is not None:
-            self.theta = theta
-        for state in self.state_list:
-            # Arbitrary initialization, in future can test different
-            # possible inits to test which one performs best.
-            self.values[state] = 0
-            legal_actions = self.dynamics.legal_actions(state)
-            self.policy[state] = legal_actions[0] # Simply select the first action
-        for terminal_state in self.terminal_state_list:
-            self.values[terminal_state] = 0
-
-    def state_action_valuation(self, state, action):
-        action_results = self.dynamics.state_action_results(state, action)
-        return sum(
-            ar.probability * (ar.reward + self.gamma * self.values[ar.next_state])
-            for ar in action_results
-        )
-
-
-    def policy_evaluation(self):
-        """Performs Policy Evaluation as described in Sutton 4.3.
-        """
-        delta = self.theta + 1
-        while delta > self.theta:
-            delta = 0
-            for state in self.state_list:
-                v = self.values[state]
-                self.values[state] = self.state_action_valuation(state, self.policy[state])
-                delta = max(delta, abs(v - self.values[state]))
-
-    def policy_improvement(self):
-        """Performs policy improvement as described in Sutton 4.3.
-        """
-        policy_stable = True
-        for state in self.state_list:
-            old_action = self.policy[state]
-            # Find argmax for action given the current value function
-            best_val = -100000
-            best_action = None
-            legal_actions = self.dynamics.legal_actions(state)
-            for action in legal_actions:
-                current_val = self.state_action_valuation(state, action)
-                if current_val > best_val:
-                    best_val = current_val
-                    best_action = action
-            if best_action is None:
-                raise Exception("You messed up chris. Policy Improvement Failed.")
-            self.policy[state] = best_action
-            if old_action != self.policy[state]:
-                policy_stable = False
-        return policy_stable
-
-    def run_alg(self):
-        loops = 0
-        while True:
-            print('loops: ', loops)
-            print('values: ', self.values)
-            print('policy: ', self.policy)
-            self.policy_evaluation()
-            policy_stable = self.policy_improvement()
-            if policy_stable:
-                return self.values, self.policy
-            loops += 1
-
-
-if __name__ == '__main__':
-    dyn = DumbDynamics([-1, 0, 1])
-    policy_iteration = PolicyIteration(dyn)
-    optimal = policy_iteration.run_alg()
-    print('optimal values', optimal[0])
-    print('optimal policy', optimal[1])
-
-    trick = DumbDynamics([100, 10, 0, 0, 0, 0, 1000])
-    policy_iteration = PolicyIteration(trick)
-    optimal = policy_iteration.run_alg()
-    print('optimal values', optimal[0])
-    print('optimal policy', optimal[1])
-    exit()
 
 # Example 4.2 Jack's Car Rental
 from itertools import combinations
 from numpy.random import poisson
-class CarDynamics:
+class CarDynamics(AbstractDynamics):
     _num_cars = [0, 0]
     verbose = True
 
@@ -228,6 +144,124 @@ class CarDynamics:
             print('profits: ', first_loc_profits + second_loc_profits)
         return first_loc_profits + second_loc_profits
 
-# dynamics = CarDynamics(0, 0)
-# for _ in range(10):
-#     dynamics.day_cycle()
+class PolicyIteration:
+    """Implements Policy Iteration as described in Sutton 4.3"""
+    # maps states to values
+    values = {}
+    # maps states to actions
+    policy = {}
+
+    gamma = 0.9
+    theta = 0.1
+
+    state_list = None
+    terminal_state_list = None
+    dynamics = None
+
+    def __init__(self, dynamics: AbstractDynamics, gamma=None, theta=None):
+        """Initializes Policy Iteration alg as described in Sutton 4.3.
+
+        Arbitrary initialization strategy sets value of all states
+        (terminal and non-terminal) to 0 and sets the action for each
+        state to just the "first" legal action, as returned by the
+        dynamics.logal_actions() function.
+
+        params:
+        dynamics: Should be a concrete instantiation of the AbstractDynamics class.
+        gamma: float between 0 and 1, determines how highly to prioritize future values
+        theta: float > 0, determines when to stop policy iteration
+        """
+        self.dynamics = dynamics
+        self.state_list = dynamics.state_list()
+        self.terminal_state_list = dynamics.terminal_state_list()
+        if gamma is not None:
+            self.gamma = gamma
+        if theta is not None:
+            self.theta = theta
+        for state in self.state_list:
+            # Arbitrary initialization, in future can test different
+            # possible inits to test which one performs best.
+            self.values[state] = 0
+            legal_actions = self.dynamics.legal_actions(state)
+            self.policy[state] = legal_actions[0] # Simply select the first action
+        for terminal_state in self.terminal_state_list:
+            self.values[terminal_state] = 0
+
+    def _state_action_valuation(self, state, action):
+        """Calculates value for a given state action pair."""
+        action_results = self.dynamics.state_action_results(state, action)
+        return sum(
+            ar.probability * (ar.reward + self.gamma * self.values[ar.next_state])
+            for ar in action_results
+        )
+
+
+    def policy_evaluation(self):
+        """Performs Policy Evaluation as described in Sutton 4.3."""
+        delta = self.theta + 1
+        while delta > self.theta:
+            delta = 0
+            for state in self.state_list:
+                v = self.values[state]
+                self.values[state] = self._state_action_valuation(state, self.policy[state])
+                delta = max(delta, abs(v - self.values[state]))
+
+    def policy_improvement(self):
+        """Performs policy improvement as described in Sutton 4.3."""
+        policy_stable = True
+        for state in self.state_list:
+            old_action = self.policy[state]
+            # Find argmax for action given the current value function
+            best_val = -100000
+            best_action = None
+            legal_actions = self.dynamics.legal_actions(state)
+            for action in legal_actions:
+                current_val = self._state_action_valuation(state, action)
+                if current_val > best_val:
+                    best_val = current_val
+                    best_action = action
+            if best_action is None:
+                raise Exception("You messed up chris. Policy Improvement Failed.")
+            self.policy[state] = best_action
+            if old_action != self.policy[state]:
+                policy_stable = False
+        return policy_stable
+
+    def run_alg(self, print_progress=False):
+        loops = 0
+        while True:
+            if print_progress:
+                print('loops: ', loops)
+                print('values: ', self.values)
+                print('policy: ', self.policy)
+            self.policy_evaluation()
+            policy_stable = self.policy_improvement()
+            if policy_stable:
+                return self.values, self.policy
+            loops += 1
+
+
+if __name__ == '__main__':
+    dyn = DumbDynamics([-1, 0, 1])
+    policy_iteration = PolicyIteration(dyn)
+    optimal = policy_iteration.run_alg()
+    print('values', optimal[0])
+    print('policy', optimal[1])
+    dyn.visualize_values(optimal[0], name='Values Graph for Dumb Gridworld')
+    dyn.visualize_policy(optimal[1], name='dumb')
+
+    dyn = DumbDynamics([1, 0, -1])
+    policy_iteration = PolicyIteration(dyn)
+    optimal = policy_iteration.run_alg()
+    print('values', optimal[0])
+    print('policy', optimal[1])
+    dyn.visualize_values(optimal[0], name='Values Graph for Invert Dumb Gridworld')
+    dyn.visualize_policy(optimal[1], name='invert dumb')
+
+    trick = DumbDynamics([100, 10, 0, 0, 0, 0, 1000])
+    policy_iteration = PolicyIteration(trick)
+    optimal = policy_iteration.run_alg()
+    print('optimal values', optimal[0])
+    print('optimal policy', optimal[1])
+    trick.visualize_values(optimal[0], name='Values Graph for Trick Gridworld')
+    trick.visualize_policy(optimal[1], name='trick')
