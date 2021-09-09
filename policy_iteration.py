@@ -95,54 +95,37 @@ class DumbDynamics(AbstractDynamics):
 
 
 # Example 4.2 Jack's Car Rental
-from itertools import combinations
+from itertools import combinations, product
 from numpy.random import poisson
 class CarDynamics(AbstractDynamics):
-    _num_cars = [0, 0]
+    num_cars = (0, 0)
     verbose = True
 
     def __init__(self, first_loc_num, second_loc_num):
-        self._num_cars[0] = first_loc_num
-        self._num_cars[1] = second_loc_num
+        self.num_cars = (first_loc_num, second_loc_num)
 
-    def move_cars(self, num_to_move):
-        """Perform the nightly action of moving cars from loc1 to loc2. Returns cost"""
-        if num_to_move < -5 or num_to_move > 5:
-            raise ValueError('You can only move a maximum of 5 cars. -5 <= num_to_move <= 5')
-        self._num_cars[0] = min(self._num_cars[0] - num_to_move, 20)
-        self._num_cars[1] = min(self.num_cars[1] + num_to_move, 20)
-        if self._num_cars[0] < 0 or self._num_cars[1] < 0:
-            raise ValueError('You cannot move more cars out of a location than already exist')
-        return abs(num_to_move) * -2
+    def state_list(self) -> list:
+        return [c for c in combinations(range(21), 2)]
 
-    def day_cycle_helper(self, loc, rental_requests, returns):
-        """Simulate a day of rentals and returns for a given location. Returns num rentals made."""
-        rentals_made = min(rental_requests, self._num_cars[loc])
-        self._num_cars[loc] += returns - rentals_made
-        return rentals_made
+    def terminal_state_list(self) -> list:
+        return []
 
-    def day_cycle(self):
-        """Simulate a day of rentals and returns. Returns money Jack makes."""
-        
-        first_requests = poisson(3)
-        second_requests = poisson(4)
-        first_returns = poisson(3)
-        second_returns = poisson(2)
+    def legal_actions(self, input_state: tuple) -> list:
+        return [range(min(20 - input_state[0], 5), min(20 - input_state[1]) + 1)]
 
-        if self.verbose:
-            print('Begin Day Cycle: ', self._num_cars)
-            print('First Rental Requests: ', first_requests)
-            print('Second Rental Requests: ', second_requests)
-            print('First Rental Returns: ', first_returns)
-            print('Second Rental Returns: ', second_returns)
+    def state_action_results(self, input_state: tuple, input_action: int) -> list[ActionResult]:
+        # Going to need to use the poisson distribution to calculate the probability
+        # of n customers requesting/returning cars for n <= 20?
+        pass
 
-        first_loc_profits = self.day_cycle_helper(0, first_requests, first_returns) * 10
-        second_loc_profits = self.day_cycle_helper(1, second_requests, second_returns) * 10
+    def visualize_policy(self, policy: dict):
+        to_print = [[0 for _ in range(21)] for _ in range(21)]
+        for i in range(21):
+            for j in range(21):
+                to_print[i][j] = policy[(i, j)]
+        for row in to_print:
+            print(row)
 
-        if self.verbose:
-            print('End Day Cycle: ', self._num_cars)
-            print('profits: ', first_loc_profits + second_loc_profits)
-        return first_loc_profits + second_loc_profits
 
 class PolicyIteration:
     """Implements Policy Iteration as described in Sutton 4.3"""
@@ -212,14 +195,14 @@ class PolicyIteration:
         for state in self.state_list:
             old_action = self.policy[state]
             # Find argmax for action given the current value function
-            best_val = -100000
+            best_val = -100000 # This is so bad, I'm sure there's an argmax
+            # function out there that I can use.
             best_action = None
             legal_actions = self.dynamics.legal_actions(state)
             for action in legal_actions:
                 current_val = self._state_action_valuation(state, action)
                 if current_val > best_val:
-                    best_val = current_val
-                    best_action = action
+                    best_val, best_action = current_val, action
             if best_action is None:
                 raise Exception("You messed up chris. Policy Improvement Failed.")
             self.policy[state] = best_action
@@ -240,8 +223,7 @@ class PolicyIteration:
                 return self.values, self.policy
             loops += 1
 
-
-if __name__ == '__main__':
+def test_dumb_dynamics():
     dyn = DumbDynamics([-1, 0, 1])
     policy_iteration = PolicyIteration(dyn)
     optimal = policy_iteration.run_alg()
@@ -265,3 +247,10 @@ if __name__ == '__main__':
     print('optimal policy', optimal[1])
     trick.visualize_values(optimal[0], name='Values Graph for Trick Gridworld')
     trick.visualize_policy(optimal[1], name='trick')
+
+
+if __name__ == '__main__':
+    # test_dumb_dynamics()
+    car_dyn = CarDynamics(0, 0)
+    di = {(i, j): (i + j) % 5 for i, j in product(range(21), repeat=2)}
+    car_dyn.visualize_policy(di)
