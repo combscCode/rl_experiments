@@ -111,7 +111,15 @@ class CarDynamics(AbstractDynamics):
         return []
 
     def legal_actions(self, input_state: tuple) -> list:
-        return [range(min(20 - input_state[0], 5), min(20 - input_state[1]) + 1)]
+        """No more than 20 cars per site, only 5 cars can be moved
+
+        Action is defined as an integer. 5 corresponds to moving 5 cars
+        to the second location. -5 corresponds to moving 5 cars to the
+        first location.
+        """
+        max_movable_to_second = min(min(5, input_state[0]), 20 - input_state[1])
+        max_movable_to_first = min(min(5, input_state[1]), 20 - input_state[0])
+        return list(range(-1 * max_movable_to_first, max_movable_to_second + 1))
 
     def state_action_results(self, input_state: tuple, input_action: int) -> list[ActionResult]:
         # Going to need to use the poisson distribution to calculate the probability
