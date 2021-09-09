@@ -95,17 +95,17 @@ class DumbDynamics(AbstractDynamics):
 
 
 # Example 4.2 Jack's Car Rental
-from itertools import combinations, product
+from itertools import product
 from numpy.random import poisson
 class CarDynamics(AbstractDynamics):
-    num_cars = (0, 0)
-    verbose = True
-
-    def __init__(self, first_loc_num, second_loc_num):
-        self.num_cars = (first_loc_num, second_loc_num)
+    # dumb, this class doesn't require tracking state at all
+    # these should be classmethods? Or just approached in
+    # a different direction. Perhaps I can allow certain
+    # values like the size of the grid or the poisson parameters
+    # to be varied.
 
     def state_list(self) -> list:
-        return [c for c in combinations(range(21), 2)]
+        return [c for c in product(range(21), repeat=2)]
 
     def terminal_state_list(self) -> list:
         return []
@@ -121,10 +121,37 @@ class CarDynamics(AbstractDynamics):
         max_movable_to_first = min(min(5, input_state[1]), 20 - input_state[0])
         return list(range(-1 * max_movable_to_first, max_movable_to_second + 1))
 
+    @staticmethod
+    def perform_action(input_state: tuple, input_action: int) -> tuple:
+        return (input_state[0] - input_action, input_state[1] + input_action)
+
     def state_action_results(self, input_state: tuple, input_action: int) -> list[ActionResult]:
-        # Going to need to use the poisson distribution to calculate the probability
-        # of n customers requesting/returning cars for n <= 20?
-        pass
+        """Simulate the behavior of the system in response to an action.
+
+        Simulates moving cars at night, then the next cycle of customers is randomly
+        generated, consumes and produces cars, then the next state + reward is produced.
+        """
+        # Move the cars
+        state = list(self.perform_action(input_state, input_action))
+        # Generate customers
+        rental_requests = [poisson(l) for l in [3, 4]]
+        rental_returns = [poisson(l) for l in [3, 2]]
+        # Comment, second location should look into their business. Strange to have
+        # rental cars just... not being returned? I guess if they're paying the bills
+        # still then go for it :shrug:
+
+        reward = -2 * abs(input_action)
+        for i, (requests, returns) in enumerate(zip(rental_requests, rental_returns)):
+            cars_sold = max(0, state[i] - requests)
+            reward += cars_sold * 10
+            state[i] -= cars_sold
+            state[i] = min(20, state[i] + returns) # Extra cars are dropped from problem
+
+        return [ActionResult(
+            probability=1,
+            next_state=tuple(state), # Needs to be hashable
+            reward=reward
+        )]
 
     def visualize_policy(self, policy: dict):
         to_print = [[0 for _ in range(21)] for _ in range(21)]
@@ -181,10 +208,14 @@ class PolicyIteration:
     def _state_action_valuation(self, state, action):
         """Calculates value for a given state action pair."""
         action_results = self.dynamics.state_action_results(state, action)
-        return sum(
-            ar.probability * (ar.reward + self.gamma * self.values[ar.next_state])
-            for ar in action_results
-        )
+        try:
+            return sum(
+                ar.probability * (ar.reward + self.gamma * self.values[ar.next_state])
+                for ar in action_results
+            )
+        except KeyError as e:
+            print(self.values)
+            raise e
 
 
     def policy_evaluation(self):
@@ -218,13 +249,15 @@ class PolicyIteration:
                 policy_stable = False
         return policy_stable
 
-    def run_alg(self, print_progress=False):
+    def run_alg(self, print_progress=False, viz_func=None):
         loops = 0
         while True:
             if print_progress:
                 print('loops: ', loops)
                 print('values: ', self.values)
                 print('policy: ', self.policy)
+            if viz_func:
+                viz_func(self.policy)
             self.policy_evaluation()
             policy_stable = self.policy_improvement()
             if policy_stable:
@@ -256,9 +289,15 @@ def test_dumb_dynamics():
     trick.visualize_values(optimal[0], name='Values Graph for Trick Gridworld')
     trick.visualize_policy(optimal[1], name='trick')
 
+def test_simple_car_dynamics():
+    c = CarDynamics()
+    policy_iteration = PolicyIteration(c)
+    optimal = policy_iteration.run_alg(viz_func=c.visualize_policy)
+    print('values', optimal[0])
+    print('policy', optimal[1])
+    c.visualize_policy(optimal[1])
+
 
 if __name__ == '__main__':
     # test_dumb_dynamics()
-    car_dyn = CarDynamics(0, 0)
-    di = {(i, j): (i + j) % 5 for i, j in product(range(21), repeat=2)}
-    car_dyn.visualize_policy(di)
+    test_simple_car_dynamics()
